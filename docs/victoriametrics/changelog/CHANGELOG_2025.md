@@ -17,3 +17,8 @@ aliases:
   - /changelog/changelog_2025/
 ---
 {{% content "CHANGELOG.md" %}}
+
+* FEATURE: streaming aggregation now supports `dedup_use_insert_timestamp` option
+  and corresponding `-streamAggr.dedupUseInsertTimestamp` and
+  `-remoteWrite.streamAggr.dedupUseInsertTimestamp` flags for preferring samples
+  with the highest insert timestamp during deduplication.

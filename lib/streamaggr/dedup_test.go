@@ -77,3 +77,28 @@ func TestDedupAggrConcurrent(_ *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestDedupAggrInsertTimestamp(t *testing.T) {
+	da := newDedupAggr(true)
+
+	samples := []pushSample{
+		{key: "foo", value: 1, timestamp: 1000, insertTimestamp: 10},
+		{key: "foo", value: 2, timestamp: 1001, insertTimestamp: 11},
+		{key: "foo", value: 3, timestamp: 1002, insertTimestamp: 11},
+		{key: "foo", value: 0, timestamp: 1000, insertTimestamp: 12},
+	}
+	da.pushSamples(samples, 0, false)
+
+	var flushed []pushSample
+	da.flush(func(ss []pushSample, _ int64, _ bool) {
+		flushed = append(flushed, ss...)
+	}, time.Now().UnixMilli(), false)
+
+	if len(flushed) != 1 {
+		t.Fatalf("unexpected flushed samples: %d", len(flushed))
+	}
+	s := flushed[0]
+	if s.key != "foo" || s.value != 0 || s.timestamp != 1000 || s.insertTimestamp != 12 {
+		t.Fatalf("unexpected sample %+v", s)
+	}
+}
