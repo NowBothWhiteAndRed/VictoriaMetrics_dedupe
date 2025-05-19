@@ -9,7 +9,7 @@ import (
 )
 
 func TestDedupAggrSerial(t *testing.T) {
-	da := newDedupAggr()
+	da := newDedupAggr(false)
 
 	const seriesCount = 100_000
 	expectedSamplesMap := make(map[string]pushSample)
@@ -57,7 +57,7 @@ func TestDedupAggrSerial(t *testing.T) {
 func TestDedupAggrConcurrent(_ *testing.T) {
 	const concurrency = 5
 	const seriesCount = 10_000
-	da := newDedupAggr()
+	da := newDedupAggr(false)
 
 	var wg sync.WaitGroup
 	for i := 0; i < concurrency; i++ {
@@ -76,4 +76,26 @@ func TestDedupAggrConcurrent(_ *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestDedupAggrInsertTimestamp(t *testing.T) {
+	da := newDedupAggr(true)
+	samples := []pushSample{
+		{key: "a", value: 1, timestamp: 10, insertTimestamp: 1},
+		{key: "a", value: 2, timestamp: 5, insertTimestamp: 2},
+		{key: "a", value: 3, timestamp: 15, insertTimestamp: 2},
+		{key: "a", value: 4, timestamp: 15, insertTimestamp: 3},
+	}
+	da.pushSamples(samples, 0, false)
+	var got []pushSample
+	da.flush(func(s []pushSample, _ int64, _ bool) {
+		got = append(got, s...)
+	}, time.Now().UnixMilli(), false)
+	if len(got) != 1 {
+		t.Fatalf("unexpected samples count: %d", len(got))
+	}
+	g := got[0]
+	if g.value != 4 || g.timestamp != 15 || g.insertTimestamp != 3 {
+		t.Fatalf("unexpected sample: %+v", g)
+	}
 }

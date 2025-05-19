@@ -44,9 +44,9 @@ type Deduplicator struct {
 // alias is url label used in metrics exposed by the returned Deduplicator.
 //
 // MustStop must be called on the returned deduplicator in order to free up occupied resources.
-func NewDeduplicator(pushFunc PushFunc, enableWindows bool, interval time.Duration, dropLabels []string, alias string) *Deduplicator {
+func NewDeduplicator(pushFunc PushFunc, enableWindows bool, interval time.Duration, dropLabels []string, alias string, useInsertTs bool) *Deduplicator {
 	d := &Deduplicator{
-		da:            newDedupAggr(),
+		da:            newDedupAggr(useInsertTs),
 		dropLabels:    dropLabels,
 		interval:      interval,
 		enableWindows: enableWindows,
@@ -128,15 +128,17 @@ func (d *Deduplicator) Push(tss []prompbmarshal.TimeSeries) {
 				continue
 			} else if d.enableWindows && s.Timestamp <= cs.maxDeadline == cs.isGreen {
 				ctx.green = append(ctx.green, pushSample{
-					key:       key,
-					value:     s.Value,
-					timestamp: s.Timestamp,
+					key:             key,
+					value:           s.Value,
+					timestamp:       s.Timestamp,
+					insertTimestamp: nowMsec,
 				})
 			} else {
 				ctx.blue = append(ctx.blue, pushSample{
-					key:       key,
-					value:     s.Value,
-					timestamp: s.Timestamp,
+					key:             key,
+					value:           s.Value,
+					timestamp:       s.Timestamp,
+					insertTimestamp: nowMsec,
 				})
 			}
 			lagMsec := nowMsec - s.Timestamp
