@@ -27,7 +27,8 @@ var (
 	streamAggrGlobalDedupInterval = flag.Duration("streamAggr.dedupInterval", 0, "Input samples are de-duplicated with this interval on "+
 		"aggregator before optional aggregation with -streamAggr.config . "+
 		"See also -dedup.minScrapeInterval and https://docs.victoriametrics.com/victoriametrics/stream-aggregation/#deduplication")
-	streamAggrGlobalIgnoreOldSamples = flag.Bool("streamAggr.ignoreOldSamples", false, "Whether to ignore input samples with old timestamps outside the "+
+	streamAggrGlobalDedupUseInsertTimestamp = flag.Bool("streamAggr.dedupUseInsertTimestamp", false, "Prefer samples with highest insert timestamp for deduplication within -streamAggr.dedupInterval")
+	streamAggrGlobalIgnoreOldSamples        = flag.Bool("streamAggr.ignoreOldSamples", false, "Whether to ignore input samples with old timestamps outside the "+
 		"current aggregation interval for aggregator. "+
 		"See https://docs.victoriametrics.com/victoriametrics/stream-aggregation/#ignoring-old-samples")
 	streamAggrGlobalIgnoreFirstIntervals = flag.Int("streamAggr.ignoreFirstIntervals", 0, "Number of aggregation intervals to skip after the start for "+
@@ -51,7 +52,8 @@ var (
 		"are written to the corresponding -remoteWrite.url . See also -remoteWrite.streamAggr.dropInput and https://docs.victoriametrics.com/victoriametrics/stream-aggregation/")
 	streamAggrDedupInterval = flagutil.NewArrayDuration("remoteWrite.streamAggr.dedupInterval", 0, "Input samples are de-duplicated with this interval before optional aggregation "+
 		"with -remoteWrite.streamAggr.config at the corresponding -remoteWrite.url. See also -dedup.minScrapeInterval and https://docs.victoriametrics.com/victoriametrics/stream-aggregation/#deduplication")
-	streamAggrIgnoreOldSamples = flagutil.NewArrayBool("remoteWrite.streamAggr.ignoreOldSamples", "Whether to ignore input samples with old timestamps outside the current "+
+	streamAggrDedupUseInsertTimestamp = flagutil.NewArrayBool("remoteWrite.streamAggr.dedupUseInsertTimestamp", "Prefer samples with highest insert timestamp for deduplication within -remoteWrite.streamAggr.dedupInterval")
+	streamAggrIgnoreOldSamples        = flagutil.NewArrayBool("remoteWrite.streamAggr.ignoreOldSamples", "Whether to ignore input samples with old timestamps outside the current "+
 		"aggregation interval for the corresponding -remoteWrite.streamAggr.config at the corresponding -remoteWrite.url. "+
 		"See https://docs.victoriametrics.com/victoriametrics/stream-aggregation/#ignoring-old-samples")
 	streamAggrIgnoreFirstIntervals = flagutil.NewArrayInt("remoteWrite.streamAggr.ignoreFirstIntervals", 0, "Number of aggregation intervals to skip after the start "+
@@ -141,7 +143,7 @@ func initStreamAggrConfigGlobal() {
 	}
 	dedupInterval := *streamAggrGlobalDedupInterval
 	if dedupInterval > 0 {
-		deduplicatorGlobal = streamaggr.NewDeduplicator(pushToRemoteStoragesTrackDropped, *streamAggrGlobalEnableWindows, dedupInterval, *streamAggrGlobalDropInputLabels, "dedup-global")
+		deduplicatorGlobal = streamaggr.NewDeduplicator(pushToRemoteStoragesTrackDropped, *streamAggrGlobalEnableWindows, dedupInterval, *streamAggrGlobalDropInputLabels, "dedup-global", *streamAggrGlobalDedupUseInsertTimestamp)
 	}
 }
 
@@ -167,7 +169,7 @@ func (rwctx *remoteWriteCtx) initStreamAggrConfig() {
 		if streamAggrDropInputLabels.GetOptionalArg(idx) != "" {
 			dropLabels = strings.Split(streamAggrDropInputLabels.GetOptionalArg(idx), "^^")
 		}
-		rwctx.deduplicator = streamaggr.NewDeduplicator(rwctx.pushInternalTrackDropped, *streamAggrGlobalEnableWindows, dedupInterval, dropLabels, alias)
+		rwctx.deduplicator = streamaggr.NewDeduplicator(rwctx.pushInternalTrackDropped, *streamAggrGlobalEnableWindows, dedupInterval, dropLabels, alias, streamAggrDedupUseInsertTimestamp.GetOptionalArg(idx))
 	}
 }
 
@@ -208,12 +210,13 @@ func newStreamAggrConfigGlobal() (*streamaggr.Aggregators, error) {
 	}
 
 	opts := &streamaggr.Options{
-		DedupInterval:        *streamAggrGlobalDedupInterval,
-		DropInputLabels:      *streamAggrGlobalDropInputLabels,
-		IgnoreOldSamples:     *streamAggrGlobalIgnoreOldSamples,
-		IgnoreFirstIntervals: *streamAggrGlobalIgnoreFirstIntervals,
-		KeepInput:            *streamAggrGlobalKeepInput,
-		EnableWindows:        *streamAggrGlobalEnableWindows,
+		DedupInterval:           *streamAggrGlobalDedupInterval,
+		DedupUseInsertTimestamp: *streamAggrGlobalDedupUseInsertTimestamp,
+		DropInputLabels:         *streamAggrGlobalDropInputLabels,
+		IgnoreOldSamples:        *streamAggrGlobalIgnoreOldSamples,
+		IgnoreFirstIntervals:    *streamAggrGlobalIgnoreFirstIntervals,
+		KeepInput:               *streamAggrGlobalKeepInput,
+		EnableWindows:           *streamAggrGlobalEnableWindows,
 	}
 
 	sas, err := streamaggr.LoadFromFile(path, pushToRemoteStoragesTrackDropped, opts, "global")
@@ -242,12 +245,13 @@ func newStreamAggrConfigPerURL(idx int, pushFunc streamaggr.PushFunc) (*streamag
 		dropLabels = strings.Split(streamAggrDropInputLabels.GetOptionalArg(idx), "^^")
 	}
 	opts := &streamaggr.Options{
-		DedupInterval:        streamAggrDedupInterval.GetOptionalArg(idx),
-		DropInputLabels:      dropLabels,
-		IgnoreOldSamples:     streamAggrIgnoreOldSamples.GetOptionalArg(idx),
-		IgnoreFirstIntervals: streamAggrIgnoreFirstIntervals.GetOptionalArg(idx),
-		KeepInput:            streamAggrKeepInput.GetOptionalArg(idx),
-		EnableWindows:        streamAggrEnableWindows.GetOptionalArg(idx),
+		DedupInterval:           streamAggrDedupInterval.GetOptionalArg(idx),
+		DedupUseInsertTimestamp: streamAggrDedupUseInsertTimestamp.GetOptionalArg(idx),
+		DropInputLabels:         dropLabels,
+		IgnoreOldSamples:        streamAggrIgnoreOldSamples.GetOptionalArg(idx),
+		IgnoreFirstIntervals:    streamAggrIgnoreFirstIntervals.GetOptionalArg(idx),
+		KeepInput:               streamAggrKeepInput.GetOptionalArg(idx),
+		EnableWindows:           streamAggrEnableWindows.GetOptionalArg(idx),
 	}
 
 	sas, err := streamaggr.LoadFromFile(path, pushFunc, opts, alias)

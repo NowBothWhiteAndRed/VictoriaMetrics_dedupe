@@ -16,9 +16,10 @@ import (
 const dedupAggrShardsCount = 128
 
 type dedupAggr struct {
-	shards        []dedupAggrShard
-	flushDuration *metrics.Histogram
-	flushTimeouts *metrics.Counter
+	shards             []dedupAggrShard
+	flushDuration      *metrics.Histogram
+	flushTimeouts      *metrics.Counter
+	useInsertTimestamp bool
 }
 
 type dedupAggrShard struct {
@@ -43,13 +44,15 @@ type dedupAggrShardNopad struct {
 }
 
 type dedupAggrSample struct {
-	value     float64
-	timestamp int64
+	value           float64
+	timestamp       int64
+	insertTimestamp int64
 }
 
-func newDedupAggr() *dedupAggr {
+func newDedupAggr(useInsertTs bool) *dedupAggr {
 	return &dedupAggr{
-		shards: make([]dedupAggrShard, dedupAggrShardsCount),
+		shards:             make([]dedupAggrShard, dedupAggrShardsCount),
+		useInsertTimestamp: useInsertTs,
 	}
 }
 
@@ -87,7 +90,7 @@ func (da *dedupAggr) pushSamples(samples []pushSample, _ int64, isGreen bool) {
 		if len(shardSamples) == 0 {
 			continue
 		}
-		da.shards[i].pushSamples(shardSamples, isGreen)
+		da.shards[i].pushSamples(shardSamples, isGreen, da.useInsertTimestamp)
 	}
 	putPerShardSamples(pss)
 }
@@ -171,7 +174,7 @@ func putPerShardSamples(pss *perShardSamples) {
 
 var perShardSamplesPool sync.Pool
 
-func (das *dedupAggrShard) pushSamples(samples []pushSample, isGreen bool) {
+func (das *dedupAggrShard) pushSamples(samples []pushSample, isGreen bool, useInsertTs bool) {
 	var state *dedupAggrState
 
 	if isGreen {
@@ -193,6 +196,7 @@ func (das *dedupAggrShard) pushSamples(samples []pushSample, isGreen bool) {
 			s = &samplesBuf[len(samplesBuf)-1]
 			s.value = sample.value
 			s.timestamp = sample.timestamp
+			s.insertTimestamp = sample.insertTimestamp
 
 			key := bytesutil.InternString(sample.key)
 			state.m[key] = s
@@ -201,9 +205,10 @@ func (das *dedupAggrShard) pushSamples(samples []pushSample, isGreen bool) {
 			state.sizeBytes.Add(uint64(len(key)) + uint64(unsafe.Sizeof(key)+unsafe.Sizeof(s)+unsafe.Sizeof(*s)))
 			continue
 		}
-		if !isDuplicate(s, sample) {
+		if !isDuplicate(s, sample, useInsertTs) {
 			s.value = sample.value
 			s.timestamp = sample.timestamp
+			s.insertTimestamp = sample.insertTimestamp
 		}
 	}
 	state.samplesBuf = samplesBuf
@@ -211,7 +216,27 @@ func (das *dedupAggrShard) pushSamples(samples []pushSample, isGreen bool) {
 
 // isDuplicate returns true if b is duplicate of a
 // See https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#deduplication
-func isDuplicate(a *dedupAggrSample, b pushSample) bool {
+func isDuplicate(a *dedupAggrSample, b pushSample, useInsertTs bool) bool {
+	if useInsertTs {
+		if b.insertTimestamp > a.insertTimestamp {
+			return false
+		}
+		if b.insertTimestamp == a.insertTimestamp {
+			if b.timestamp > a.timestamp {
+				return false
+			}
+			if b.timestamp == a.timestamp {
+				if decimal.IsStaleNaN(b.value) {
+					return false
+				}
+				if b.value > a.value {
+					return false
+				}
+			}
+		}
+		return true
+	}
+
 	if b.timestamp > a.timestamp {
 		return false
 	}
@@ -252,9 +277,10 @@ func (das *dedupAggrShard) flush(ctx *dedupFlushCtx, f aggrPushFunc) {
 	dstSamples := ctx.samples
 	for key, s := range m {
 		dstSamples = append(dstSamples, pushSample{
-			key:       key,
-			value:     s.value,
-			timestamp: s.timestamp,
+			key:             key,
+			value:           s.value,
+			timestamp:       s.timestamp,
+			insertTimestamp: s.insertTimestamp,
 		})
 
 		// Limit the number of samples per each flush in order to limit memory usage.

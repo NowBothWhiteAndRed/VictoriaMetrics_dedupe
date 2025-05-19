@@ -101,6 +101,10 @@ type Options struct {
 	// The deduplication can be set up individually per each aggregation via dedup_interval option.
 	DedupInterval time.Duration
 
+	// DedupUseInsertTimestamp instructs to prefer samples with the highest
+	// insert timestamp when de-duplicating samples within DedupInterval.
+	DedupUseInsertTimestamp bool
+
 	// DropInputLabels is an optional list of labels to drop from samples before de-duplication and stream aggregation.
 	DropInputLabels []string
 
@@ -177,6 +181,10 @@ type Config struct {
 
 	// DedupInterval is an optional interval for deduplication.
 	DedupInterval string `yaml:"dedup_interval,omitempty"`
+
+	// DedupUseInsertTimestamp makes deduplication prefer samples with the
+	// highest insert timestamp within a dedup_interval.
+	DedupUseInsertTimestamp *bool `yaml:"dedup_use_insert_timestamp,omitempty"`
 
 	// Staleness interval is interval after which the series state will be reset if no samples have been sent during it.
 	// The parameter is only relevant for outputs: total, total_prometheus, increase, increase_prometheus and histogram_bucket.
@@ -497,6 +505,11 @@ func newAggregator(cfg *Config, path string, pushFunc PushFunc, ms *metrics.Set,
 		return nil, fmt.Errorf("interval=%s must be a multiple of dedup_interval=%s", interval, dedupInterval)
 	}
 
+	useInsertTs := opts.DedupUseInsertTimestamp
+	if v := cfg.DedupUseInsertTimestamp; v != nil {
+		useInsertTs = *v
+	}
+
 	// check cfg.StalenessInterval
 	stalenessInterval := interval * 2
 	if cfg.StalenessInterval != "" {
@@ -663,7 +676,7 @@ func newAggregator(cfg *Config, path string, pushFunc PushFunc, ms *metrics.Set,
 	}
 
 	if dedupInterval > 0 {
-		a.da = newDedupAggr()
+		a.da = newDedupAggr(useInsertTs)
 		a.da.flushTimeouts = ms.NewCounter(fmt.Sprintf(`vm_streamaggr_dedup_flush_timeouts_total{%s}`, metricLabels))
 		a.da.flushDuration = ms.NewHistogram(fmt.Sprintf(`vm_streamaggr_dedup_flush_duration_seconds{%s}`, metricLabels))
 
@@ -1022,15 +1035,17 @@ func (a *aggregator) Push(tss []prompbmarshal.TimeSeries, matchIdxs []byte) {
 			}
 			if enableWindows && s.Timestamp <= cs.maxDeadline == cs.isGreen {
 				ctx.green = append(ctx.green, pushSample{
-					key:       key,
-					value:     s.Value,
-					timestamp: s.Timestamp,
+					key:             key,
+					value:           s.Value,
+					timestamp:       s.Timestamp,
+					insertTimestamp: nowMsec,
 				})
 			} else {
 				ctx.blue = append(ctx.blue, pushSample{
-					key:       key,
-					value:     s.Value,
-					timestamp: s.Timestamp,
+					key:             key,
+					value:           s.Value,
+					timestamp:       s.Timestamp,
+					insertTimestamp: nowMsec,
 				})
 			}
 		}
@@ -1095,9 +1110,10 @@ func (ctx *pushCtx) reset() {
 type pushSample struct {
 	// key identifies a sample that belongs to unique series
 	// key value can't be reused
-	key       string
-	value     float64
-	timestamp int64
+	key             string
+	value           float64
+	timestamp       int64
+	insertTimestamp int64
 }
 
 func getPushCtx() *pushCtx {
