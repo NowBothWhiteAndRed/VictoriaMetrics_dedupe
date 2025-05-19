@@ -9,7 +9,7 @@ import (
 )
 
 func TestDedupAggrSerial(t *testing.T) {
-	da := newDedupAggr()
+	da := newDedupAggr(false)
 
 	const seriesCount = 100_000
 	expectedSamplesMap := make(map[string]pushSample)
@@ -57,7 +57,7 @@ func TestDedupAggrSerial(t *testing.T) {
 func TestDedupAggrConcurrent(_ *testing.T) {
 	const concurrency = 5
 	const seriesCount = 10_000
-	da := newDedupAggr()
+	da := newDedupAggr(false)
 
 	var wg sync.WaitGroup
 	for i := 0; i < concurrency; i++ {

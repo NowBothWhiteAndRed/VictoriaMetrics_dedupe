@@ -30,7 +30,8 @@ var (
 		"See also -streamAggr.keepInput and https://docs.victoriametrics.com/victoriametrics/stream-aggregation/")
 	streamAggrDedupInterval = flag.Duration("streamAggr.dedupInterval", 0, "Input samples are de-duplicated with this interval before optional aggregation with -streamAggr.config . "+
 		"See also -streamAggr.dropInputLabels and -dedup.minScrapeInterval and https://docs.victoriametrics.com/victoriametrics/stream-aggregation/#deduplication")
-	streamAggrDropInputLabels = flagutil.NewArrayString("streamAggr.dropInputLabels", "An optional list of labels to drop from samples "+
+	streamAggrDedupUseInsertTimestamp = flag.Bool("streamAggr.dedupUseInsertTimestamp", false, "Prefer samples with highest insert timestamp for deduplication within -streamAggr.dedupInterval")
+	streamAggrDropInputLabels         = flagutil.NewArrayString("streamAggr.dropInputLabels", "An optional list of labels to drop from samples "+
 		"before stream de-duplication and aggregation . See https://docs.victoriametrics.com/victoriametrics/stream-aggregation/#dropping-unneeded-labels")
 	streamAggrIgnoreOldSamples = flag.Bool("streamAggr.ignoreOldSamples", false, "Whether to ignore input samples with old timestamps outside the current aggregation interval. "+
 		"See https://docs.victoriametrics.com/victoriametrics/stream-aggregation/#ignoring-old-samples")
@@ -61,11 +62,12 @@ func CheckStreamAggrConfig() error {
 	}
 	pushNoop := func(_ []prompbmarshal.TimeSeries) {}
 	opts := &streamaggr.Options{
-		DedupInterval:        *streamAggrDedupInterval,
-		DropInputLabels:      *streamAggrDropInputLabels,
-		IgnoreOldSamples:     *streamAggrIgnoreOldSamples,
-		IgnoreFirstIntervals: *streamAggrIgnoreFirstIntervals,
-		EnableWindows:        *streamAggrEnableWindows,
+		DedupInterval:           *streamAggrDedupInterval,
+		DedupUseInsertTimestamp: *streamAggrDedupUseInsertTimestamp,
+		DropInputLabels:         *streamAggrDropInputLabels,
+		IgnoreOldSamples:        *streamAggrIgnoreOldSamples,
+		IgnoreFirstIntervals:    *streamAggrIgnoreFirstIntervals,
+		EnableWindows:           *streamAggrEnableWindows,
 	}
 	sas, err := streamaggr.LoadFromFile(*streamAggrConfig, pushNoop, opts, "global")
 	if err != nil {
@@ -82,7 +84,7 @@ func InitStreamAggr() {
 	saCfgReloaderStopCh = make(chan struct{})
 	if *streamAggrConfig == "" {
 		if *streamAggrDedupInterval > 0 {
-			deduplicator = streamaggr.NewDeduplicator(pushAggregateSeries, *streamAggrEnableWindows, *streamAggrDedupInterval, *streamAggrDropInputLabels, "global")
+			deduplicator = streamaggr.NewDeduplicator(pushAggregateSeries, *streamAggrEnableWindows, *streamAggrDedupInterval, *streamAggrDropInputLabels, "global", *streamAggrDedupUseInsertTimestamp)
 		}
 		return
 	}
@@ -95,10 +97,11 @@ func InitStreamAggr() {
 	sighupCh := procutil.NewSighupChan()
 
 	opts := &streamaggr.Options{
-		DedupInterval:        *streamAggrDedupInterval,
-		DropInputLabels:      *streamAggrDropInputLabels,
-		IgnoreOldSamples:     *streamAggrIgnoreOldSamples,
-		IgnoreFirstIntervals: *streamAggrIgnoreFirstIntervals,
+		DedupInterval:           *streamAggrDedupInterval,
+		DedupUseInsertTimestamp: *streamAggrDedupUseInsertTimestamp,
+		DropInputLabels:         *streamAggrDropInputLabels,
+		IgnoreOldSamples:        *streamAggrIgnoreOldSamples,
+		IgnoreFirstIntervals:    *streamAggrIgnoreFirstIntervals,
 	}
 	sas, err := streamaggr.LoadFromFile(*streamAggrConfig, pushAggregateSeries, opts, "global")
 	if err != nil {
@@ -129,10 +132,11 @@ func reloadStreamAggrConfig() {
 	saCfgReloads.Inc()
 
 	opts := &streamaggr.Options{
-		DedupInterval:        *streamAggrDedupInterval,
-		DropInputLabels:      *streamAggrDropInputLabels,
-		IgnoreOldSamples:     *streamAggrIgnoreOldSamples,
-		IgnoreFirstIntervals: *streamAggrIgnoreFirstIntervals,
+		DedupInterval:           *streamAggrDedupInterval,
+		DedupUseInsertTimestamp: *streamAggrDedupUseInsertTimestamp,
+		DropInputLabels:         *streamAggrDropInputLabels,
+		IgnoreOldSamples:        *streamAggrIgnoreOldSamples,
+		IgnoreFirstIntervals:    *streamAggrIgnoreFirstIntervals,
 	}
 	sasNew, err := streamaggr.LoadFromFile(*streamAggrConfig, pushAggregateSeries, opts, "global")
 	if err != nil {
