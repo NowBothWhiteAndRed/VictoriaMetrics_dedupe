@@ -814,6 +814,11 @@ specified individually per each `-remoteWrite.url`:
   #
   # dedup_interval: 30s
 
+  # dedup_use_insert_timestamp instructs the deduplicator to prefer samples with the highest insert timestamp within the
+  # dedup_interval window. When false (default), the sample with the highest timestamp and value wins.
+  #
+  # dedup_use_insert_timestamp: true
+
   # enable_windows is a boolean option to enable fixed aggregation windows.
   # See https://docs.victoriametrics.com/victoriametrics/stream-aggregation/#aggregation-windows
   #
@@ -954,14 +959,16 @@ Typical scenarios for data routing with `vmagent`:
 [vmagent](https://docs.victoriametrics.com/victoriametrics/vmagent/) supports online [de-duplication](https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#deduplication) of samples
 before sending them to the configured `-remoteWrite.url`. The de-duplication can be enabled via the following options:
 
-- By specifying the desired de-duplication interval via `-streamAggr.dedupInterval` command-line flag for all received data 
+- By specifying the desired de-duplication interval via `-streamAggr.dedupInterval` command-line flag for all received data
   or via `-remoteWrite.streamAggr.dedupInterval` command-line flag for the particular `-remoteWrite.url` destination.
   For example, `./vmagent -remoteWrite.url=http://remote-storage/api/v1/write -remoteWrite.streamAggr.dedupInterval=30s` instructs `vmagent` to leave
   only the last sample per each seen [time series](https://docs.victoriametrics.com/victoriametrics/keyconcepts/#time-series) per every 30 seconds.
   The de-deduplication is performed after applying [relabeling](https://docs.victoriametrics.com/victoriametrics/vmagent/#relabeling) and
   before performing the aggregation.
+- By passing `-streamAggr.dedupUseInsertTimestamp` command-line flag (or `-remoteWrite.streamAggr.dedupUseInsertTimestamp` for vmagent) the deduplicator
+  prefers samples with the highest insert timestamp within the deduplication window. This can heal late arriving data.
 
-- By specifying `dedup_interval` option individually per each [stream aggregation config](#stream-aggregation-config) 
+- By specifying `dedup_interval` option individually per each [stream aggregation config](#stream-aggregation-config)
   in `-remoteWrite.streamAggr.config` or `-streamAggr.config` configs.
 
 [Single-node VictoriaMetrics](https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/) supports two types of de-duplication:
