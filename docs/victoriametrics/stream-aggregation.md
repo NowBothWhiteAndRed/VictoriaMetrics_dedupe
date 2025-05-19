@@ -353,6 +353,10 @@ This behaviour can be changed via the following command-line flags:
   and [vmagent](https://docs.victoriametrics.com/victoriametrics/vmagent/). At [vmagent](https://docs.victoriametrics.com/victoriametrics/vmagent/)
   `-remoteWrite.streamAggr.dropInput` flag can be specified individually per each `-remoteWrite.url`.
   If one of these flags are set, then all the input samples are dropped, while only the aggregated samples are written to the storage.
+- `-streamAggr.dedupUseInsertTimestamp` at [single-node VictoriaMetrics](https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/)
+  and [vmagent](https://docs.victoriametrics.com/victoriametrics/vmagent/). At [vmagent](https://docs.victoriametrics.com/victoriametrics/vmagent/)
+  `-remoteWrite.streamAggr.dedupUseInsertTimestamp` flag can be specified individually per each `-remoteWrite.url`.
+  If enabled, de-duplication prefers samples with the highest insert timestamp within the deduplication interval.
 
 ## Aggregation outputs
 
@@ -814,6 +818,11 @@ specified individually per each `-remoteWrite.url`:
   #
   # dedup_interval: 30s
 
+  # dedup_use_insert_timestamp instructs deduplication to prefer samples with
+  # the highest insert timestamp within dedup_interval. By default the latest
+  # timestamp/value wins.
+  # dedup_use_insert_timestamp: false
+
   # enable_windows is a boolean option to enable fixed aggregation windows.
   # See https://docs.victoriametrics.com/victoriametrics/stream-aggregation/#aggregation-windows
   #
@@ -960,6 +969,7 @@ before sending them to the configured `-remoteWrite.url`. The de-duplication can
   only the last sample per each seen [time series](https://docs.victoriametrics.com/victoriametrics/keyconcepts/#time-series) per every 30 seconds.
   The de-deduplication is performed after applying [relabeling](https://docs.victoriametrics.com/victoriametrics/vmagent/#relabeling) and
   before performing the aggregation.
+  Use `-streamAggr.dedupUseInsertTimestamp` or `-remoteWrite.streamAggr.dedupUseInsertTimestamp` flags to prefer samples with the highest insert timestamp within the deduplication window.
 
 - By specifying `dedup_interval` option individually per each [stream aggregation config](#stream-aggregation-config) 
   in `-remoteWrite.streamAggr.config` or `-streamAggr.config` configs.
